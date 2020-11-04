@@ -55,7 +55,7 @@ def get_dataset(pattern,volume_shape,batch,block_shape,n_classes):
     dataset = process_dataset(dataset,batch,block_shape,n_classes)
     return dataset
 
-def run(block_shape):
+def run(block_shape, dropout_typ):
     
     # Constants
     root_path = '/om/user/satra/kwyk/tfrecords/'
@@ -76,11 +76,17 @@ def run(block_shape):
 
     # Distribute dataset.
     train_dist_dataset = strategy.experimental_distribute_dataset(dataset_train)
+
+    # Create a checkpoint directory to store the checkpoints.
+    checkpoint_dir = './training_checkpoints'
+    # Name of the checkpoint files
+    checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt_{epoch}")
  
     with strategy.scope():
         optimizer = tf.keras.optimizers.Adam(1e-03)
-        model = variational_meshnet(n_classes=n_classes,input_shape=block_shape+(1,), filters=96,dropout="concrete",is_monte_carlo=True,receptive_field=129) 
+        model = variational_meshnet(n_classes=n_classes,input_shape=block_shape+(1,), filters=96,dropout=dropout_typ,is_monte_carlo=True,receptive_field=129) 
         loss_fn = losses.ELBO(model=model, num_examples=np.prod(block_shape),reduction=tf.keras.losses.Reduction.NONE)
+        checkpoint = tf.train.Checkpoint(optimizer=optimizer, model=model)
         model.compile(loss=loss_fn,optimizer=optimizer,experimental_run_tf_function=False)
       
         for epoch in range(EPOCHS):
@@ -91,7 +97,16 @@ def run(block_shape):
                 error = model.train_on_batch(data)
                 print('Batch {}, error : {}'.format(i,error))
 
+            checkpoint.save(checkpoint_prefix)
+            
+        saved_model_path='saved_model/'
+        model.save(saved_model_path)    
+
+
+
+
 if __name__ == '__main__':
    
     block_shape = (int(sys.argv[1]),int(sys.argv[1]),int(sys.argv[1]))
-    run(block_shape)
+    dropout=sys.argv[2]
+    run(block_shape,dropout)
