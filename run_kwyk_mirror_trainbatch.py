@@ -3,10 +3,12 @@ import tensorflow as tf
 import sys
 import json
 import glob
+import datetime
 import numpy as np
 import os
 import pandas as pd
 from nobrainer.models.bayesian import variational_meshnet
+from nobrainer.metrics import dice, generalized_dice
 import losses
 from losses import *
 
@@ -55,11 +57,17 @@ def get_dataset(pattern,volume_shape,batch,block_shape,n_classes):
     dataset = process_dataset(dataset,batch,block_shape,n_classes)
     return dataset
 
-def run(block_shape, dropout_typ):
+def run(block_shape, dropout_typ,model_name):
     
     # Constants
     root_path = '/om/user/satra/kwyk/tfrecords/'
+    # to run the code Satori
+    #root_path = "/nobackup/users/abizeul/kwyk/tfrecords/"
+
     train_pattern = root_path+'data-train_shard-*.tfrec'
+    eval_pattern = root_path + "data-evaluate_shard-*.tfrec"
+
+    
 
     n_classes =115
     volume_shape = (256, 256, 256)      
@@ -73,12 +81,13 @@ def run(block_shape, dropout_typ):
 
     # Create a `tf.data.Dataset` instance.
     dataset_train = get_dataset(train_pattern,volume_shape,GLOBAL_BATCH_SIZE,block_shape,n_classes)
+    dataset_eval = get_dataset(eval_pattern,volume_shape,GLOBAL_BATCH_SIZE,block_shape,n_classes)
 
     # Distribute dataset.
     train_dist_dataset = strategy.experimental_distribute_dataset(dataset_train)
 
     # Create a checkpoint directory to store the checkpoints.
-    checkpoint_dir = './training_checkpoints'
+    checkpoint_dir = os.path.join("training_files",model_name,"training_checkpoints")
     # Name of the checkpoint files
     checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt_{epoch}")
  
@@ -86,27 +95,57 @@ def run(block_shape, dropout_typ):
         optimizer = tf.keras.optimizers.Adam(1e-03)
         model = variational_meshnet(n_classes=n_classes,input_shape=block_shape+(1,), filters=96,dropout=dropout_typ,is_monte_carlo=True,receptive_field=129) 
         loss_fn = losses.ELBO(model=model, num_examples=np.prod(block_shape),reduction=tf.keras.losses.Reduction.NONE)
+        #dice_metric = generalized_dice()
         checkpoint = tf.train.Checkpoint(optimizer=optimizer, model=model)
         model.compile(loss=loss_fn,optimizer=optimizer,experimental_run_tf_function=False)
       
+        # training loop
+        train_loss=[]
         for epoch in range(EPOCHS):
             print('Epoch number ',epoch)
             i = 0
             for data in dataset_train:
                 i += 1
                 error = model.train_on_batch(data)
+                train_loss.append(error)
                 print('Batch {}, error : {}'.format(i,error))
 
             checkpoint.save(checkpoint_prefix)
             
-        saved_model_path='saved_model/'
-        model.save(saved_model_path)    
 
+        # evaluating loop
+        eval_loss=[]
+        print("---------- evaluating ----------")
+        i=0
+        eval_loss=[]
+        for data in dataset_eval:
+            i += 1
+            eval_error = model.test_on_batch(data)
+            eval_loss.append(eval_error)
+            print('Batch {}, eval_loss : {}'.format(i,eval_error))
+
+        # Save model and cariables
+        train_vars={
+            "train_loss":train_loss,
+            "eval_loss":eval_loss
+        }
+        file_path = os.path.join("training_files",model_name,"data-{}.json".format(model_name))
+        with open(file_path, 'w') as fp:
+            json.dump(train_vars, fp, indent=4)
+
+        #model_name="kwyk_128_full.h5"
+        saved_model_path=os.path.join("./training_files",model_name,"saved_model/{}.h5".format(model_name))
+        model.save(saved_model_path, save_format='h5')
 
 
 
 if __name__ == '__main__':
-   
+
+    model_name="kwyk_128_full-{}".format(datetime.datetime.now().strftime("%m-%d_%H-%M"))
+    os.mkdir(os.path.join("training_files",model_name))
+    os.mkdir(os.path.join("training_files",model_name,"saved_model"))
+    os.mkdir(os.path.join("training_files",model_name,"training_checkpoints"))
+
     block_shape = (int(sys.argv[1]),int(sys.argv[1]),int(sys.argv[1]))
     dropout=sys.argv[2]
-    run(block_shape,dropout)
+    run(block_shape,dropout,model_name)
