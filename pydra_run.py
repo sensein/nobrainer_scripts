@@ -29,34 +29,3 @@ kwyk_task = pydra.SingularityTask(
 with pydra.Submitter(plugin="cf") as sub:
 	sub(kwyk_task)
 
-
-
-
-
-
-
-
-
-
-
-
-cmd = ["-m", "bvwn_multi_prior", "-n", "2", "--save-variance", "--save-entropy"]
-
-my_input_spec = SpecInfo(
-    name="Input",
-    fields=[
-        ("T1", File, {"mandatory": True, "position": 1, "argstr": "", "help_string": "T1 file"}),
-        ("out_prefix", str, {"position": 2, "argstr": "", "help_string": "output prfix"})
-    ],
-    bases=(SingularitySpec,),
-)
-
-singu = SingularityTask(
-    name="singu", executable=cmd,
-    image="kwyk_latest-gpu.sif", container_xargs=["-W", "/data", "--nv"],
-    bindings=[("your_path", "/data", "ro")],
-    cache_dir=tmpdir,
-    T1="/Users/dorota/tmp/withoutLesion/T1.nii",
-    out_prefix = "withoutLesion/output",
-    input_spec=my_input_spec
-)
