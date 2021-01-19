@@ -8,9 +8,10 @@ import numpy as np
 import os
 import pandas as pd
 from nobrainer.models.bayesian import variational_meshnet
-from nobrainer.metrics import dice, generalized_dice
+from nobrainer.metrics import dice
 import losses
 from losses import *
+from time import time
 
 def _to_blocks(x, y,block_shape):
     """Separate `x` into blocks and repeat `y` by number of blocks."""
@@ -61,7 +62,7 @@ def run(block_shape, dropout_typ,model_name):
     
     # Constants
     root_path = '/om/user/satra/kwyk/tfrecords/'
-    # to run the code Satori
+    # to run the code on Satori
     #root_path = "/nobackup/users/abizeul/kwyk/tfrecords/"
 
     train_pattern = root_path+'data-train_shard-*.tfrec'
@@ -101,6 +102,7 @@ def run(block_shape, dropout_typ,model_name):
       
         # training loop
         train_loss=[]
+        start=time()
         for epoch in range(EPOCHS):
             print('Epoch number ',epoch)
             i = 0
@@ -111,41 +113,60 @@ def run(block_shape, dropout_typ,model_name):
                 print('Batch {}, error : {}'.format(i,error))
 
             checkpoint.save(checkpoint_prefix)
+        training_time=time()-start
             
 
         # evaluating loop
-        eval_loss=[]
         print("---------- evaluating ----------")
         i=0
         eval_loss=[]
+        dice_scores=[]
         for data in dataset_eval:
             i += 1
             eval_error = model.test_on_batch(data)
             eval_loss.append(eval_error)
             print('Batch {}, eval_loss : {}'.format(i,eval_error))
 
-        # Save model and cariables
-        train_vars={
+            # calculate dice
+            result = model.predict_on_batch(data)
+            (feat, label) = data
+            label = tf.one_hot(label, depth= n_classes)
+            dice_scores.append(tf.reduce_mean(dice(label,result,axis=(1,2,3))).numpy().tolist())
+
+
+        # Save model and variables
+        variables={
             "train_loss":train_loss,
-            "eval_loss":eval_loss
+            "eval_loss":eval_loss,
+            "eval_dice":dice_scores
         }
         file_path = os.path.join("training_files",model_name,"data-{}.json".format(model_name))
         with open(file_path, 'w') as fp:
-            json.dump(train_vars, fp, indent=4)
+            json.dump(variables, fp, indent=4)
 
         #model_name="kwyk_128_full.h5"
-        saved_model_path=os.path.join("./training_files",model_name,"saved_model/{}.h5".format(model_name))
-        model.save(saved_model_path, save_format='h5')
+        #saved_model_path=os.path.join("./training_files",model_name,"saved_model/{}.h5".format(model_name))
+        #model.save(saved_model_path, save_format='h5')
+        saved_model_path=os.path.join("./training_files",model_name,"saved_model/")
+        model.save(saved_model_path, save_format='tf')
+
+    return training_time
 
 
 
 if __name__ == '__main__':
 
-    model_name="kwyk_128_full-{}".format(datetime.datetime.now().strftime("%m-%d_%H-%M"))
+    start=time()
+    model_name="kwyk_4gpu_{}".format(datetime.datetime.now().strftime("%y-%m-%d_%H-%M"))
+    print("----------------- model name: {} -----------------".format(model_name))
     os.mkdir(os.path.join("training_files",model_name))
     os.mkdir(os.path.join("training_files",model_name,"saved_model"))
     os.mkdir(os.path.join("training_files",model_name,"training_checkpoints"))
 
     block_shape = (int(sys.argv[1]),int(sys.argv[1]),int(sys.argv[1]))
     dropout=sys.argv[2]
-    run(block_shape,dropout,model_name)
+    if dropout == "None":
+        dropout = None
+    training_time=run(block_shape,dropout,model_name)
+    end=time()-start
+    print("training loop takes: {} & whole code takes: {}".format(training_time, end))
