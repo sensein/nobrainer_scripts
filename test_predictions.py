@@ -1,6 +1,4 @@
-import nobrainer
 import tensorflow as tf
-import sys
 from run_kwyk_mirror_trainbatch import get_dataset
 from nobrainer.losses import ELBO
 from nobrainer.metrics import dice

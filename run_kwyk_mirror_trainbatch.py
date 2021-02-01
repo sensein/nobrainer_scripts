@@ -13,6 +13,7 @@ import losses
 from losses import *
 from time import time
 
+
 def _to_blocks(x, y,block_shape):
     """Separate `x` into blocks and repeat `y` by number of blocks."""
     print(x.shape)
@@ -33,21 +34,26 @@ def get_dict(n_classes):
         return mydict
     else: raise(NotImplementedError)
 
-def process_dataset(dset,batch_size,block_shape,n_classes):
+def process_dataset(dset,batch_size,block_shape,n_classes,train= True):
     # Standard score the features.
     dset = dset.map(lambda x, y: (nobrainer.volume.standardize(x), nobrainer.volume.replace(y,get_dict(n_classes))))
     # Separate features into blocks.
     dset = dset.map(lambda x, y:_to_blocks(x,y,block_shape))
     # This step is necessary because separating into blocks adds a dimension.
     dset = dset.unbatch()
-    dset = dset.shuffle(buffer_size=100)
+    #dset = dset.shuffle(buffer_size=100)
+    # Only shuffle the dset for training
+    if train:
+        dset = dset.shuffle(buffer_size=100)
+    else:
+        pass
     # Add a grayscale channel to the features.
     dset = dset.map(lambda x, y: (tf.expand_dims(x, -1), y))
     # Batch features and labels.
     dset = dset.batch(batch_size, drop_remainder=True)
     return dset
 
-def get_dataset(pattern,volume_shape,batch,block_shape,n_classes):
+def get_dataset(pattern,volume_shape,batch,block_shape,n_classes,train=True):
 
     dataset = nobrainer.dataset.tfrecord_dataset(
         file_pattern=glob.glob(pattern),
@@ -55,15 +61,15 @@ def get_dataset(pattern,volume_shape,batch,block_shape,n_classes):
         shuffle=False,
         scalar_label=False,
         compressed=True)
-    dataset = process_dataset(dataset,batch,block_shape,n_classes)
+    dataset = process_dataset(dataset,batch,block_shape,n_classes,train=train)
     return dataset
 
 def run(block_shape, dropout_typ,model_name):
     
     # Constants
-    root_path = '/om/user/satra/kwyk/tfrecords/'
+    #root_path = '/om/user/satra/kwyk/tfrecords/'
     # to run the code on Satori
-    #root_path = "/nobackup/users/abizeul/kwyk/tfrecords/"
+    root_path = "/nobackup/users/abizeul/kwyk/tfrecords/"
 
     train_pattern = root_path+'data-train_shard-*.tfrec'
     eval_pattern = root_path + "data-evaluate_shard-*.tfrec"
@@ -71,7 +77,7 @@ def run(block_shape, dropout_typ,model_name):
     
 
     n_classes =115
-    volume_shape = (256, 256, 256)      
+    volume_shape = (256, 256, 256)
     EPOCHS = 1
     BATCH_SIZE_PER_REPLICA = 1
 
@@ -82,10 +88,10 @@ def run(block_shape, dropout_typ,model_name):
 
     # Create a `tf.data.Dataset` instance.
     dataset_train = get_dataset(train_pattern,volume_shape,GLOBAL_BATCH_SIZE,block_shape,n_classes)
-    dataset_eval = get_dataset(eval_pattern,volume_shape,GLOBAL_BATCH_SIZE,block_shape,n_classes)
+    dataset_eval = get_dataset(eval_pattern,volume_shape,GLOBAL_BATCH_SIZE,block_shape,n_classes, train= False)
 
     # Distribute dataset.
-    train_dist_dataset = strategy.experimental_distribute_dataset(dataset_train)
+    #train_dist_dataset = strategy.experimental_distribute_dataset(dataset_train)
 
     # Create a checkpoint directory to store the checkpoints.
     checkpoint_dir = os.path.join("training_files",model_name,"training_checkpoints")
@@ -110,9 +116,9 @@ def run(block_shape, dropout_typ,model_name):
                 i += 1
                 error = model.train_on_batch(data)
                 train_loss.append(error)
-                print('Batch {}, error : {}'.format(i,error))
+                print('Batch {}, error : {}'.format(i, error))
 
-            checkpoint.save(checkpoint_prefix)
+            checkpoint.save(checkpoint_prefix.format(epoch=epoch))
         training_time=time()-start
             
 
@@ -121,20 +127,32 @@ def run(block_shape, dropout_typ,model_name):
         i=0
         eval_loss=[]
         dice_scores=[]
-        for data in dataset_eval:
+        preds=[]
+        labels=[]
+        #class_dice= np.zeros_like(n_classes)
+        for data in dataset_eval.take(10):
             i += 1
             eval_error = model.test_on_batch(data)
             eval_loss.append(eval_error)
-            print('Batch {}, eval_loss : {}'.format(i,eval_error))
-
             # calculate dice
             result = model.predict_on_batch(data)
+            preds.append(np.argmax(result,-1).tolist())
             (feat, label) = data
+            labels.append(label.numpy().tolist())
             label = tf.one_hot(label, depth= n_classes)
-            dice_scores.append(tf.reduce_mean(dice(label,result,axis=(1,2,3))).numpy().tolist())
+            dice_score = tf.reduce_mean(dice(label,result,axis=(1,2,3))).numpy()
+            dice_scores.append(dice_score.tolist())
+            print('Batch {}, eval_loss : {}, dice_score: {}'.format(i, eval_error, dice_score))
 
 
         # Save model and variables
+
+        #model_name="kwyk_128_full.h5"
+        #saved_model_path=os.path.join("./training_files",model_name,"saved_model/{}.h5".format(model_name))
+        #model.save(saved_model_path, save_format='h5')
+        saved_model_path=os.path.join("./training_files",model_name,"saved_model/")
+        model.save(saved_model_path, save_format='tf')
+
         variables={
             "train_loss":train_loss,
             "eval_loss":eval_loss,
@@ -144,12 +162,15 @@ def run(block_shape, dropout_typ,model_name):
         with open(file_path, 'w') as fp:
             json.dump(variables, fp, indent=4)
 
-        #model_name="kwyk_128_full.h5"
-        #saved_model_path=os.path.join("./training_files",model_name,"saved_model/{}.h5".format(model_name))
-        #model.save(saved_model_path, save_format='h5')
-        saved_model_path=os.path.join("./training_files",model_name,"saved_model/")
-        model.save(saved_model_path, save_format='tf')
+        outputs={
+            "labels":labels,
+            "predictions":preds
+        }
+        file_path = os.path.join("training_files",model_name,"output-{}.json".format(model_name))
+        with open(file_path, 'w') as fp:
+            json.dump(outputs, fp, indent=4)
 
+        
     return training_time
 
 
@@ -157,7 +178,7 @@ def run(block_shape, dropout_typ,model_name):
 if __name__ == '__main__':
 
     start=time()
-    model_name="kwyk_4gpu_{}".format(datetime.datetime.now().strftime("%y-%m-%d_%H-%M"))
+    model_name="kwyk_check_{}".format(datetime.datetime.now().strftime("%y-%m-%d_%H-%M"))
     print("----------------- model name: {} -----------------".format(model_name))
     os.mkdir(os.path.join("training_files",model_name))
     os.mkdir(os.path.join("training_files",model_name,"saved_model"))
