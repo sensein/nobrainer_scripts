@@ -8,7 +8,7 @@ import numpy as np
 import os
 import pandas as pd
 from nobrainer.models.bayesian import variational_meshnet
-from nobrainer.metrics import dice
+from nobrainer.metrics import dice, generalized_dice
 import losses
 from losses import *
 from time import time
@@ -70,15 +70,18 @@ def run(block_shape, dropout_typ,model_name):
     #root_path = '/om/user/satra/kwyk/tfrecords/'
     # to run the code on Satori
     root_path = "/nobackup/users/abizeul/kwyk/tfrecords/"
+    #root_path = "/Users/hoda/Documents/Projects/data/kwyk-data/tfrecords/"
 
-    train_pattern = root_path+'data-train_shard-*.tfrec'
-    eval_pattern = root_path + "data-evaluate_shard-*.tfrec"
+    #train_pattern = root_path+'data-train_shard-*.tfrec'
+    train_pattern = root_path+'data-train_shard-000.tfrec'
+    #eval_pattern = root_path + "data-evaluate_shard-*.tfrec"
+    eval_pattern = root_path + "data-evaluate_shard-000.tfrec"
 
     
 
     n_classes =115
     volume_shape = (256, 256, 256)
-    EPOCHS = 1
+    EPOCHS = 5
     BATCH_SIZE_PER_REPLICA = 1
 
     #Setting up the multi gpu strategy
@@ -112,7 +115,7 @@ def run(block_shape, dropout_typ,model_name):
         for epoch in range(EPOCHS):
             print('Epoch number ',epoch)
             i = 0
-            for data in dataset_train:
+            for data in dataset_train.take(1):
                 i += 1
                 error = model.train_on_batch(data)
                 train_loss.append(error)
@@ -130,19 +133,25 @@ def run(block_shape, dropout_typ,model_name):
         preds=[]
         labels=[]
         #class_dice= np.zeros_like(n_classes)
-        for data in dataset_eval.take(10):
+        for data in dataset_eval.take(1):
             i += 1
+            breakpoint()
             eval_error = model.test_on_batch(data)
-            eval_loss.append(eval_error)
+            #eval_loss.append(eval_error)
             # calculate dice
             result = model.predict_on_batch(data)
-            preds.append(np.argmax(result,-1).tolist())
+            result_am = np.argmax(result, -1)
+            result_h = tf.one_hot(result_am, depth = n_classes)
+            #preds.append(np.argmax(result,-1).tolist())
             (feat, label) = data
-            labels.append(label.numpy().tolist())
-            label = tf.one_hot(label, depth= n_classes)
-            dice_score = tf.reduce_mean(dice(label,result,axis=(1,2,3))).numpy()
-            dice_scores.append(dice_score.tolist())
-            print('Batch {}, eval_loss : {}, dice_score: {}'.format(i, eval_error, dice_score))
+            np.savez("vars",label=label.numpy(),result=result)
+            #labels.append(label.numpy().tolist())
+            label_h = tf.one_hot(label, depth= n_classes)
+            dice_score_g= generalized_dice(label_h,result_h,axis=(1,2,3))
+            dice_score = dice(label_h,result_h,axis=(1,2,3,4))
+            #dice_score = tf.reduce_mean(dice(label,result,axis=(1,2,3,4))).numpy()
+            #dice_scores.append(dice_score.tolist())
+            print('Batch {}, eval_loss : {}, dice: {}, g_dice: {}'.format(i, eval_error, dice_score, dice_score_g))
 
 
         # Save model and variables
@@ -153,22 +162,22 @@ def run(block_shape, dropout_typ,model_name):
         saved_model_path=os.path.join("./training_files",model_name,"saved_model/")
         model.save(saved_model_path, save_format='tf')
 
-        variables={
-            "train_loss":train_loss,
-            "eval_loss":eval_loss,
-            "eval_dice":dice_scores
-        }
-        file_path = os.path.join("training_files",model_name,"data-{}.json".format(model_name))
-        with open(file_path, 'w') as fp:
-            json.dump(variables, fp, indent=4)
+        # variables={
+        #     "train_loss":train_loss,
+        #     "eval_loss":eval_loss,
+        #     "eval_dice":dice_scores
+        # }
+        # file_path = os.path.join("training_files",model_name,"data-{}.json".format(model_name))
+        # with open(file_path, 'w') as fp:
+        #     json.dump(variables, fp, indent=4)
 
-        outputs={
-            "labels":labels,
-            "predictions":preds
-        }
-        file_path = os.path.join("training_files",model_name,"output-{}.json".format(model_name))
-        with open(file_path, 'w') as fp:
-            json.dump(outputs, fp, indent=4)
+        # outputs={
+        #     "labels":labels,
+        #     "predictions":preds
+        # }
+        # file_path = os.path.join("training_files",model_name,"output-{}.json".format(model_name))
+        # with open(file_path, 'w') as fp:
+        #     json.dump(outputs, fp, indent=4)
 
         
     return training_time
@@ -178,7 +187,7 @@ def run(block_shape, dropout_typ,model_name):
 if __name__ == '__main__':
 
     start=time()
-    model_name="kwyk_check_{}".format(datetime.datetime.now().strftime("%y-%m-%d_%H-%M"))
+    model_name="kwyk_check1_{}".format(datetime.datetime.now().strftime("%y-%m-%d_%H-%M"))
     print("----------------- model name: {} -----------------".format(model_name))
     os.mkdir(os.path.join("training_files",model_name))
     os.mkdir(os.path.join("training_files",model_name,"saved_model"))

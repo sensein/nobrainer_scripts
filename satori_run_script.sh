@@ -1,6 +1,7 @@
 #!/bin/bash
-#SBATCH -t 12:00:00
-#SBATCH -N 1
+#SBATCH --qos=sched_level_2
+#SBATCH -t 24:00:00
+#SBATCH -N 2
 #SBATCH -n 4
 #SBATCH --gres=gpu:4
 #SBATCH --mem=64G
