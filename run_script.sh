@@ -4,7 +4,7 @@
 #SBATCH --gres=gpu:tesla-v100:4
 #SBATCH -p gablab
 #SBATCH --mem=32G
-#SBATCH -o /om2/user/hodaraja/kwyk/nobrainer_scripts/outputs/slurm_2gpu_%j.out
+#SBATCH -o /om2/user/hodaraja/kwyk/nobrainer_scripts/outputs/chcek_4gpu_%j.out
 
 set -e
 unset XDG_RUNTIME_DIR

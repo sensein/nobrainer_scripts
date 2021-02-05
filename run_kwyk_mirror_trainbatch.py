@@ -8,9 +8,8 @@ import numpy as np
 import os
 import pandas as pd
 from nobrainer.models.bayesian import variational_meshnet
-from nobrainer.metrics import dice
-import losses
-from losses import *
+from nobrainer.metrics import generalized_dice
+from nobrainer.losses import ELBO
 from time import time
 
 def _to_blocks(x, y,block_shape):
@@ -67,12 +66,12 @@ def run(block_shape, dropout_typ,model_name):
 
     train_pattern = root_path+'data-train_shard-*.tfrec'
     eval_pattern = root_path + "data-evaluate_shard-*.tfrec"
-
+    
     
 
     n_classes =115
     volume_shape = (256, 256, 256)      
-    EPOCHS = 1
+    EPOCHS = 10
     BATCH_SIZE_PER_REPLICA = 1
 
     #Setting up the multi gpu strategy
@@ -85,7 +84,7 @@ def run(block_shape, dropout_typ,model_name):
     dataset_eval = get_dataset(eval_pattern,volume_shape,GLOBAL_BATCH_SIZE,block_shape,n_classes)
 
     # Distribute dataset.
-    train_dist_dataset = strategy.experimental_distribute_dataset(dataset_train)
+    #train_dist_dataset = strategy.experimental_distribute_dataset(dataset_train)
 
     # Create a checkpoint directory to store the checkpoints.
     checkpoint_dir = os.path.join("training_files",model_name,"training_checkpoints")
@@ -93,26 +92,36 @@ def run(block_shape, dropout_typ,model_name):
     checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt_{epoch}")
  
     with strategy.scope():
-        optimizer = tf.keras.optimizers.Adam(1e-03)
+        optimizer = tf.keras.optimizers.Adam(1e-04)
         model = variational_meshnet(n_classes=n_classes,input_shape=block_shape+(1,), filters=96,dropout=dropout_typ,is_monte_carlo=True,receptive_field=129) 
-        loss_fn = losses.ELBO(model=model, num_examples=np.prod(block_shape),reduction=tf.keras.losses.Reduction.NONE)
-        #dice_metric = generalized_dice()
+        loss_fn = ELBO(model=model, num_examples=np.prod(block_shape),reduction=tf.keras.losses.Reduction.NONE)
+
         checkpoint = tf.train.Checkpoint(optimizer=optimizer, model=model)
-        model.compile(loss=loss_fn,optimizer=optimizer,experimental_run_tf_function=False)
+        model.compile(loss=loss_fn,
+                      optimizer=optimizer,
+                      metrics=[generalized_dice],
+                      experimental_run_tf_function=False)
+        
+        # outfile= os.path.join("training_files",model_name,"out-{}")
       
         # training loop
         train_loss=[]
+        train_metrics=[]
         start=time()
         for epoch in range(EPOCHS):
             print('Epoch number ',epoch)
             i = 0
             for data in dataset_train:
                 i += 1
-                error = model.train_on_batch(data)
+                error, metric = model.train_on_batch(data)
                 train_loss.append(error)
-                print('Batch {}, error : {}'.format(i,error))
+                train_metrics.append(metric)
+                print('Batch {}, error : {}, dice:{}'.format(i,error,metric))
 
-            checkpoint.save(checkpoint_prefix)
+            checkpoint.save(checkpoint_prefix.format(epoch=epoch))
+            # result = model.predict_on_batch(data)
+            # (feat, label) = data
+            # np.savez(outfile.format(epoch),label=label.numpy(),result=result)
         training_time=time()-start
             
 
@@ -121,6 +130,7 @@ def run(block_shape, dropout_typ,model_name):
         i=0
         eval_loss=[]
         dice_scores=[]
+        outfile_eval= os.path.join("training_files",model_name,"evalout-{}")
         for data in dataset_eval:
             i += 1
             eval_error = model.test_on_batch(data)
@@ -129,14 +139,20 @@ def run(block_shape, dropout_typ,model_name):
 
             # calculate dice
             result = model.predict_on_batch(data)
+            result = np.argmax(result, -1)
+            result = tf.one_hot(result, depth = n_classes)
             (feat, label) = data
             label = tf.one_hot(label, depth= n_classes)
-            dice_scores.append(tf.reduce_mean(dice(label,result,axis=(1,2,3))).numpy().tolist())
+            dice_score = generalized_dice(label, result, axis=(1,2,3))
+            dice_scores.append(tf.reduce_mean(dice_score).numpy().tolist())
+            if i%20 == 0:
+                np.savez(outfile_eval.format(i),label=label.numpy(),result=result)
 
 
         # Save model and variables
         variables={
             "train_loss":train_loss,
+            "train_dice":train_metrics,
             "eval_loss":eval_loss,
             "eval_dice":dice_scores
         }
@@ -157,7 +173,7 @@ def run(block_shape, dropout_typ,model_name):
 if __name__ == '__main__':
 
     start=time()
-    model_name="kwyk_4gpu_{}".format(datetime.datetime.now().strftime("%y-%m-%d_%H-%M"))
+    model_name="kwyk_32_4gpu_{}".format(datetime.datetime.now().strftime("%y-%m-%d_%H-%M"))
     print("----------------- model name: {} -----------------".format(model_name))
     os.mkdir(os.path.join("training_files",model_name))
     os.mkdir(os.path.join("training_files",model_name,"saved_model"))

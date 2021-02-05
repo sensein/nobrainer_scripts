@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 plt.style.use("seaborn-whitegrid")
 
 root_path="training_files/"
-model_name="kwyk_check_21-01-26_19-06"
-file_name="data-kwyk_check_21-01-26_19-06.json"
+model_name="kwyk_single_input_21-02-03_04-57"
+file_name="data-"+ model_name +".json"
 
 def plot_vars(dic):
     """ plot items in dic"""
