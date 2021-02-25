@@ -9,10 +9,12 @@ import time
 # constants
 #root_path = '/om/user/satra/kwyk/tfrecords/'
 #root_path = '/om2/user/hodaraja/kwyk/nobrainer_scripts/'
-root_path = "data/"
+#root_path = "data/"
+# for satori run
+root_path = "/nobackup/users/abizeul/kwyk/tfrecords/"
 
-train_pattern = root_path+'single_volume-000.tfrec'
-eval_pattern = root_path + "single_volume-000.tfrec"
+train_pattern = root_path +'data-train_shard-*.tfrec'
+eval_pattern = root_path +"data-evaluate_shard-*.tfrec"
 
 n_classes =115
 volume_shape = (256, 256, 256)
