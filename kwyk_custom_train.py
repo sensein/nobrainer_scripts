@@ -7,12 +7,14 @@ import numpy as np
 import time
 
 # constants
+# for openmind run
 #root_path = '/om/user/satra/kwyk/tfrecords/'
 #root_path = '/om2/user/hodaraja/kwyk/nobrainer_scripts/'
 #root_path = "data/"
+#train_pattern = root_path +"single_volume-000.tfrec"
+#eval_pattern = root_path +"single_volume-000.tfrec"
 # for satori run
 root_path = "/nobackup/users/abizeul/kwyk/tfrecords/"
-
 train_pattern = root_path +'data-train_shard-*.tfrec'
 eval_pattern = root_path +"data-evaluate_shard-*.tfrec"
 
@@ -57,8 +59,8 @@ def accuracy(preds, labels):
     return np.mean((np.argmax(preds,-1) == labels.numpy()))
 
 def calculate_dice(labels, preds):
-    labels= tf.one_hot(labels)
-    preds = tf.one_hot(np.argmax(preds,-1))
+    labels= tf.one_hot(labels, depth = n_classes)
+    preds = tf.one_hot(np.argmax(preds,-1),depth = n_classes)
     return generalized_dice(labels,preds, axis=(1,2,3))
 
 # define train step
