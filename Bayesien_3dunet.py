@@ -57,9 +57,8 @@ def end_stage(inputs, prior_fn, kernel_size=3,
 
 
 def bayesian_3Dunet(input_shape=(256, 256, 256, 1), kernel_size=3,
-                  activation="relu", padding="SAME", **kwargs):
-    prior_std = kwargs.get("prior_std", 1)
-    prior_fn = normal_prior(prior_std)
+                  activation="relu", padding="SAME", mu=0.0 ,prior_std = 1.0):
+    prior_fn = normal_prior(mu, prior_std)
 
     inputs = Input(input_shape)
 
