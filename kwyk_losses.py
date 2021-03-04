@@ -19,26 +19,6 @@ def diceandmse(y_true, y_pred,axis=(1, 2, 3, 4)):
 
 class DiceandMse(LossFunctionWrapper):
     """Computes one minus the Dice and MSE similarity between labels and predictions.
-    For example, if `y_true` is [0., 0., 1., 1.] and `y_pred` is [1., 1., 1., 0.]
-    then the Dice loss is 0.6. The Dice similarity between these tensors is 0.4.
-
-    Use this loss only for binary semantic segmentation tasks. The default value
-    for the axis parameter is meant for models which output a shape of
-    `(batch, x, y, z, 1)`. Values in `y_true` and `y_pred` should be in the
-    range [0, 1].
-
-    Usage:
-
-    ```python
-    dice = nobrainer.losses.Dice(axis=None)
-    loss = dice([0., 0., 1., 1.], [1., 1., 1., 0.])
-    print('Loss: ', loss.numpy())  # Loss: 0.6
-    ```
-
-    Usage with tf.keras API:
-    ```python
-    model = tf.keras.Model(inputs, outputs)
-    model.compile('sgd', loss=nobrainer.losses.Dice())
     ```
     """
 
@@ -54,27 +34,6 @@ def diceandbce(y_true, y_pred,axis=(1, 2, 3, 4)):
 
 class DiceandBce(LossFunctionWrapper):
     """Computes one minus the Dice similarity between labels and predictions.
-    For example, if `y_true` is [0., 0., 1., 1.] and `y_pred` is [1., 1., 1., 0.]
-    then the Dice loss is 0.6. The Dice similarity between these tensors is 0.4.
-
-    Use this loss only for binary semantic segmentation tasks. The default value
-    for the axis parameter is meant for models which output a shape of
-    `(batch, x, y, z, 1)`. Values in `y_true` and `y_pred` should be in the
-    range [0, 1].
-
-    Usage:
-
-    ```python
-    dice = nobrainer.losses.Dice(axis=None)
-    loss = dice([0., 0., 1., 1.], [1., 1., 1., 0.])
-    print('Loss: ', loss.numpy())  # Loss: 0.6
-    ```
-
-    Usage with tf.keras API:
-    ```python
-    model = tf.keras.Model(inputs, outputs)
-    model.compile('sgd', loss=nobrainer.losses.Dice())
-    ```
     """
 
     def __init__(self, axis=(1, 2, 3, 4), reduction=ReductionV2.AUTO, name="dice"):
