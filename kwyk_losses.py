@@ -3,12 +3,43 @@
 """
 Created on Thu Feb  4 09:48:48 2021
 
-@author: hoda
+@author: hoda and Aakanksha 
 """
 
 import tensorflow as tf
 from tensorflow.python.keras.utils.losses_utils import ReductionV2
 from tensorflow.python.keras.losses import LossFunctionWrapper
+
+
+def diceandmse(y_true, y_pred,axis=(1, 2, 3, 4)):
+    d = 1.0 - metrics.dice(y_true=y_true, y_pred=y_pred, axis=axis)
+    mse = tf.keras.losses.mean_squared_error(y_true, y_pred)
+    return d + mse
+
+
+class DiceandMse(LossFunctionWrapper):
+    """Computes one minus the Dice and MSE similarity between labels and predictions.
+    ```
+    """
+
+    def __init__(self, axis=(1, 2, 3, 4), reduction=ReductionV2.AUTO, name="dice"):
+        super().__init__(diceandmse, axis=axis, reduction=reduction, name=name)
+
+
+def diceandbce(y_true, y_pred,axis=(1, 2, 3, 4)):
+    d = 1.0 - metrics.dice(y_true=y_true, y_pred=y_pred, axis=axis)
+    bce = tf.keras.losses.binary_crossentropy(y_true, y_pred)
+    return 10*(d + bce)
+
+
+class DiceandBce(LossFunctionWrapper):
+    """Computes one minus the Dice similarity between labels and predictions.
+    """
+
+    def __init__(self, axis=(1, 2, 3, 4), reduction=ReductionV2.AUTO, name="dice"):
+        super().__init__(diceandbce, axis=axis, reduction=reduction, name=name)
+
+
 
 ###### noberainer implementation of elbo loss
 def elbo(y_true, y_pred, model, num_examples, from_logits=False):
@@ -68,4 +99,6 @@ class ELBO(LossFunctionWrapper):
             name=name,
             reduction=reduction,
         )
+
+
 
