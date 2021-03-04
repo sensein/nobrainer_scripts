@@ -3,12 +3,84 @@
 """
 Created on Thu Feb  4 09:48:48 2021
 
-@author: hoda
+@author: hoda and Aakanksha 
 """
 
 import tensorflow as tf
 from tensorflow.python.keras.utils.losses_utils import ReductionV2
 from tensorflow.python.keras.losses import LossFunctionWrapper
+
+
+def diceandmse(y_true, y_pred,axis=(1, 2, 3, 4)):
+    d = 1.0 - metrics.dice(y_true=y_true, y_pred=y_pred, axis=axis)
+    mse = tf.keras.losses.mean_squared_error(y_true, y_pred)
+    return d + mse
+
+
+class DiceandMse(LossFunctionWrapper):
+    """Computes one minus the Dice and MSE similarity between labels and predictions.
+    For example, if `y_true` is [0., 0., 1., 1.] and `y_pred` is [1., 1., 1., 0.]
+    then the Dice loss is 0.6. The Dice similarity between these tensors is 0.4.
+
+    Use this loss only for binary semantic segmentation tasks. The default value
+    for the axis parameter is meant for models which output a shape of
+    `(batch, x, y, z, 1)`. Values in `y_true` and `y_pred` should be in the
+    range [0, 1].
+
+    Usage:
+
+    ```python
+    dice = nobrainer.losses.Dice(axis=None)
+    loss = dice([0., 0., 1., 1.], [1., 1., 1., 0.])
+    print('Loss: ', loss.numpy())  # Loss: 0.6
+    ```
+
+    Usage with tf.keras API:
+    ```python
+    model = tf.keras.Model(inputs, outputs)
+    model.compile('sgd', loss=nobrainer.losses.Dice())
+    ```
+    """
+
+    def __init__(self, axis=(1, 2, 3, 4), reduction=ReductionV2.AUTO, name="dice"):
+        super().__init__(diceandmse, axis=axis, reduction=reduction, name=name)
+
+
+def diceandbce(y_true, y_pred,axis=(1, 2, 3, 4)):
+    d = 1.0 - metrics.dice(y_true=y_true, y_pred=y_pred, axis=axis)
+    bce = tf.keras.losses.binary_crossentropy(y_true, y_pred)
+    return 10*(d + bce)
+
+
+class DiceandBce(LossFunctionWrapper):
+    """Computes one minus the Dice similarity between labels and predictions.
+    For example, if `y_true` is [0., 0., 1., 1.] and `y_pred` is [1., 1., 1., 0.]
+    then the Dice loss is 0.6. The Dice similarity between these tensors is 0.4.
+
+    Use this loss only for binary semantic segmentation tasks. The default value
+    for the axis parameter is meant for models which output a shape of
+    `(batch, x, y, z, 1)`. Values in `y_true` and `y_pred` should be in the
+    range [0, 1].
+
+    Usage:
+
+    ```python
+    dice = nobrainer.losses.Dice(axis=None)
+    loss = dice([0., 0., 1., 1.], [1., 1., 1., 0.])
+    print('Loss: ', loss.numpy())  # Loss: 0.6
+    ```
+
+    Usage with tf.keras API:
+    ```python
+    model = tf.keras.Model(inputs, outputs)
+    model.compile('sgd', loss=nobrainer.losses.Dice())
+    ```
+    """
+
+    def __init__(self, axis=(1, 2, 3, 4), reduction=ReductionV2.AUTO, name="dice"):
+        super().__init__(diceandbce, axis=axis, reduction=reduction, name=name)
+
+
 
 ###### noberainer implementation of elbo loss
 def elbo(y_true, y_pred, model, num_examples, from_logits=False):
@@ -69,46 +141,5 @@ class ELBO(LossFunctionWrapper):
             reduction=reduction,
         )
 
-def kwyk_loss(y_true, y_pred, model ,num_examples, warm_start, from_logits=False):
-    means = model.layers.kernel_posterior.mean()
-    sigmas = model.layers.kernel_posterior.std()
-    mean_priors = model.layers.priors.mean()
-    sigma_priors = model.layers.priors.sigma() 
-    neg_log_likelihood = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_pred, logits=y_true))
-    l2_reg_loss = tf.reduce_sum((tf.square(means - mean_priors))/ ((tf.square(sigma_priors) + 1e-8) * 2.0))
-    sigma_sq_loss = tf.reduce_sum(tf.square(sigmas) / ((tf.square(sigma_priors) + 1e-8) * 2.0))
-    log_sigma_loss = tf.reduce_sum(tf.log(sigmas+1e-8))
-    
-    kld = sum(model.losses)
-    if warm_start:
-        loss = neg_log_likelihood + (l2_reg_loss)/num_examples
-    else:
-        loss = neg_log_likelihood + (l2_reg_loss + sigma_sq_loss - log_sigma_loss + kld)/ num_examples
-    return loss
 
 
-class KWYK_Loss(LossFunctionWrapper):
-    """Loss to minimize Evidence Lower Bound (ELBO).
-
-    Use this loss for multiclass variational segmentation.
-    Labels should not be one-hot encoded.
-    """
-
-    def __init__(
-        self,
-        model,
-        num_examples,
-        from_logits=False,
-        reduction=tf.keras.losses.Reduction.NONE,
-        name="ELBO",
-        warm_start = False
-    ):
-        super().__init__(
-            kwyk_loss,
-            model=model,
-            num_examples=num_examples,
-            from_logits=from_logits,
-            name=name,
-            reduction=tf.keras.losses.Reduction.NONE,
-            warm_start = warm_start
-        )
