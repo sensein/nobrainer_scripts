@@ -15,7 +15,8 @@ def _to_blocks(x, y,block_shape):
 def get_dict(n_classes):
     print('Conversion into {} segmentation classes from freesurfer labels to 0-{}'.format(n_classes,n_classes-1))
     if n_classes == 50: 
-        tmp = pd.read_csv('50-class-mapping.csv', header=0,usecols=[0,1],dtype=np.int32)
+        tmp = pd.read_csv('50-class-mapping.csv', header=0,usecols=[1,2],dtype=np.int32)
+        tmp = tmp.iloc[1:,:] # removing the unknown class
         mydict = dict(tuple(zip(tmp['original'],tmp['new'])))
         return mydict
     elif n_classes == 115:

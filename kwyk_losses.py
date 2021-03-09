@@ -50,33 +50,6 @@ def elbo(y_true, y_pred, model, num_examples, from_logits=False):
     elbo_loss = neg_log_likelihood + kl
     return elbo_loss
 
-# ##### implementation that Alice had
-# def elbo(y_true, y_pred, model, num_examples, from_logits=False):
-#     """Labels should be integers in `[0, n)`."""
-#     scc_fn = tf.losses.SparseCategoricalCrossentropy(from_logits=from_logits,reduction=tf.keras.losses.Reduction.NONE)
-#     neg_log_likelihood = scc_fn(y_true, y_pred)
-#     kl = sum(model.losses) / num_examples
-#     elbo_loss = neg_log_likelihood + kl
-#     elbo_loss = tf.reduce_sum(elbo_loss)/2
-#     return elbo_loss
-
-# ####### Elbo loss implementation from the web
-# def elbo(y_true, y_pred, model, num_examples, from_logits=False):
-    
-#     logit = model(data)# Compute the -ELBO as the loss, averaged over the batch size.
-#     labels_distribution = tfp.distributions.Categorical(logits=logits)
-#     neg_log_likelihood = -tf.reduce_mean(labels_distribution.log_prob(labels))
-#     kl = sum(model.losses) / mnist_conv.train.num_examples
-#     elbo_loss = neg_log_likelihood + kl
-#     return elbo_loss
-
-# ###### my elbo implementation
-# def elbo(label, predictions):
-#     # to be implemented
-#     elbo_loss = None
-#     return elbo_loss
-
-
 class ELBO(LossFunctionWrapper):
     """Loss to minimize Evidence Lower Bound (ELBO).
     Use this loss for multiclass variational segmentation.
@@ -99,6 +72,7 @@ class ELBO(LossFunctionWrapper):
             name=name,
             reduction=reduction,
         )
+        
 
 
 
