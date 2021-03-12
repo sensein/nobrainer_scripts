@@ -26,11 +26,14 @@ def get_dict(n_classes):
         return mydict
     else: raise(NotImplementedError)
     
-def process_dataset(dset,batch_size,block_shape,n_classes,training= True):
+def process_dataset(dset,batch_size,block_shape,n_classes,one_hot_label= False,training= True):
     # Standard score the features.
     dset = dset.map(lambda x, y: (nobrainer.volume.standardize(x), nobrainer.volume.replace(y,get_dict(n_classes))))
+    
     # Separate features into blocks.
     dset = dset.map(lambda x, y:_to_blocks(x,y,block_shape))
+    if one_hot_label:
+        dset= dset.map(lambda x,y:(x, tf.one_hot(y,n_classes)))
     # This step is necessary because separating into blocks adds a dimension.
     dset = dset.unbatch()
     if training:
@@ -41,7 +44,7 @@ def process_dataset(dset,batch_size,block_shape,n_classes,training= True):
     dset = dset.batch(batch_size, drop_remainder=True)
     return dset
 
-def get_dataset(pattern,volume_shape,batch,block_shape,n_classes, training = True):
+def get_dataset(pattern,volume_shape,batch,block_shape,n_classes,one_hot_label= False,training = True):
 
     dataset = nobrainer.dataset.tfrecord_dataset(
         file_pattern=glob.glob(pattern),
@@ -49,7 +52,7 @@ def get_dataset(pattern,volume_shape,batch,block_shape,n_classes, training = Tru
         shuffle=False,
         scalar_label=False,
         compressed=True)
-    dataset = process_dataset(dataset,batch,block_shape,n_classes, training = training)
+    dataset = process_dataset(dataset,batch,block_shape,n_classes, one_hot_label= one_hot_label ,training = training)
     return dataset
 
 

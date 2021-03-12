@@ -7,12 +7,26 @@ Created on Thu Feb  4 09:48:48 2021
 """
 
 import tensorflow as tf
+import nobrainer
+from nobrainer.metrics import generalized_dice
 from tensorflow.python.keras.utils.losses_utils import ReductionV2
 from tensorflow.python.keras.losses import LossFunctionWrapper
 
+# def nll_l2(y_true, y_pred):
+#     scc_fn = tf.losses.SparseCategoricalCrossentropy(from_logits=from_logits)
+#     nll = scc_fn(y_true, y_pred)
+#     l2 = tf.nn.l2_loss()
+    
+def dice_loss(y_true, y_pred, axis=(1,2,3,4)):
+    return 1-generalized_dice(y_true, y_pred, axis=(1,2,3,4))
+
+class DiceLoss(LossFunctionWrapper):
+    def __init__(self, axis=(1, 2, 3, 4), reduction=ReductionV2.AUTO, name="dice"):
+        super().__init__(dice_loss, axis=axis, reduction=reduction, name=name)
+        
 
 def diceandmse(y_true, y_pred,axis=(1, 2, 3, 4)):
-    d = 1.0 - metrics.dice(y_true=y_true, y_pred=y_pred, axis=axis)
+    d = 1.0 - nobrainer.metrics.dice(y_true=y_true, y_pred=y_pred, axis=axis)
     mse = tf.keras.losses.mean_squared_error(y_true, y_pred)
     return d + mse
 
@@ -27,7 +41,7 @@ class DiceandMse(LossFunctionWrapper):
 
 
 def diceandbce(y_true, y_pred,axis=(1, 2, 3, 4)):
-    d = 1.0 - metrics.dice(y_true=y_true, y_pred=y_pred, axis=axis)
+    d = 1.0 - nobrainer.metrics.dice(y_true=y_true, y_pred=y_pred, axis=axis)
     bce = tf.keras.losses.binary_crossentropy(y_true, y_pred)
     return 10*(d + bce)
 
@@ -38,7 +52,6 @@ class DiceandBce(LossFunctionWrapper):
 
     def __init__(self, axis=(1, 2, 3, 4), reduction=ReductionV2.AUTO, name="dice"):
         super().__init__(diceandbce, axis=axis, reduction=reduction, name=name)
-
 
 
 ###### noberainer implementation of elbo loss
