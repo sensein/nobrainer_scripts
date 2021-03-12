@@ -9,7 +9,7 @@ from kwyk_data import get_dataset
 from nobrainer.volume import from_blocks_numpy
 from nobrainer.metrics import generalized_dice
 from baysian_meshnet import variational_meshnet
-
+from kwyk_losses import DiceLoss
 
 # constants
 #root_path = '/om/user/satra/kwyk/tfrecords/'
@@ -34,17 +34,18 @@ BATCH_SIZE = 1
 num_training_brains = 1
 num_examples = int(((volume_shape[0]/block_shape[0])**3)*num_training_brains)
 # define class weights with background weight=0
-keys = list(range(n_classes))
-vals = np.ones(len(keys))
-vals[0] = 0
-class_weights = dict(tuple(zip(keys,vals.tolist())))
+# keys = list(range(n_classes))
+# vals = np.ones(len(keys))
+# vals[0] = 0
+# class_weights = dict(tuple(zip(keys,vals.tolist())))
 warmup=True
+one_hot_label=True
 
 model_name = "kwyk_test_b{}_cl{}".format(block_shape[0], n_classes)
 checkpoint_dir = os.path.join("training_files",model_name,"training_checkpoints")
 checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt_{epoch}")
 
-def save_output(output_prefix, data, volume_shape,block_shape):
+def save_output(output_prefix, data, volume_shape,block_shape, one_hot_label=False):
     '''volume_shape and block_shape are tuple of 3'''    
     num_blocks = int((volume_shape[0]/block_shape[0])**3) 
     labels = np.empty(shape = (num_blocks,*block_shape))
@@ -53,17 +54,26 @@ def save_output(output_prefix, data, volume_shape,block_shape):
     for batch, (feat, label) in enumerate(data.take(num_blocks)):
         pred = model(feat)
         pred = np.argmax(pred, -1)
+        if one_hot_label:
+            label = tf.math.argmax(labels, axis=-1)
         labels[batch,:,:,:] = label.numpy()
         results[batch,:,:,:] = pred
     
     labels = from_blocks_numpy(labels, volume_shape)
-    results = from_blocks_numpy(results, volume_shape)
-    #output_file = os.path.join("training_files",model_name,"output_b{}_cl{}".format(block_shape[0],n_classes))     
+    results = from_blocks_numpy(results, volume_shape)    
     np.savez(output_prefix,label=labels,result= results)
+    
+def calcualte_dice(pred, label, axis=(1,2,3,4), one_hot_label=one_hot_label):
+    if not one_hot_label:
+        pred = np.argmax(result, -1)
+        pred = tf.one_hot(result, depth = n_classes)
+        label = tf.one_hot(batch_y, depth= n_classes)
+    return generalized_dice(label, pred, axis=axis)
 
+        
 print("--------- Loading data -------------")
-dataset_train = get_dataset(train_pattern,volume_shape, BATCH_SIZE, block_shape, n_classes)
-dataset_eval = get_dataset(eval_pattern,volume_shape, BATCH_SIZE, block_shape, n_classes, training= False)
+dataset_train = get_dataset(train_pattern,volume_shape, BATCH_SIZE, block_shape, n_classes,one_hot_label=one_hot_label)
+dataset_eval = get_dataset(eval_pattern,volume_shape, BATCH_SIZE, block_shape, n_classes, training= False,one_hot_label=one_hot_label)
 print("_________ data loaded with block_size: {}, batch_size: {}___________".format(block_shape[0], BATCH_SIZE)) 
 
 if warmup:
@@ -95,9 +105,10 @@ else:
         )
 
 optimizer = tf.keras.optimizers.Adam(lr=lr) 
+loss_fn = DiceLoss(axis=(1,2,3))
 checkpoint = tf.train.Checkpoint(optimizer=optimizer, model=model)
-model.compile(optimizer, loss='sparse_categorical_crossentropy',
-                 metrics=['sparse_categorical_accuracy'],
+model.compile(optimizer, loss=loss_fn,
+                 metrics=['categorical_accuracy'],
                  #loss_weights=class_weights,
                  experimental_run_tf_function=False)
 
@@ -112,17 +123,14 @@ for epoch in range(EPOCHS):
         epoch_accuracy.append(batch_accuracy)
         epoch_loss.append(batch_loss)
         # calculate dice
-        result = model.predict_on_batch(batch_x)
-        result = np.argmax(result, -1)
-        result = tf.one_hot(result, depth = n_classes)
-        batch_y = tf.one_hot(batch_y, depth= n_classes)
-        dice_score = generalized_dice(batch_y, result, axis=(1,2,3))
+        result = model.predict_on_batch(batch_x)            
+        dice_score = calcualte_dice(batch_y, result, axis=(1,2,3),one_hot_label=one_hot_label)
         epoch_dice.append(dice_score)
     # save checkpoint and output every 10 epoch      
     if epoch % 10 == 0:
         checkpoint.save(checkpoint_prefix.format(epoch=epoch))
         output_path = "./training_files/" + model_name + "/out_epoch-{}".format(epoch)
-        save_output(output_path, dataset_eval, volume_shape, block_shape)
+        save_output(output_path, dataset_eval, volume_shape, block_shape, one_hot_label=one_hot_label)
     print("loss:{}, accuracy:{}, dice:{}".format(tf.reduce_mean(epoch_loss),
                                     tf.reduce_mean(epoch_accuracy),
                                     tf.reduce_mean(epoch_dice)))         
@@ -136,10 +144,7 @@ for epoch in range(EPOCHS):
         epoch_val_accuracy.append(batch_val_accuracy)
         # calculate dice
         result = model.predict_on_batch(eval_x)
-        result = np.argmax(result, -1)
-        result = tf.one_hot(result, depth = n_classes)
-        eval_y = tf.one_hot(eval_y, depth= n_classes)
-        dice_score = generalized_dice(eval_y, result, axis=(1,2,3))
+        dice_score = calcualte_dice(eval_y, result, axis=(1,2,3), one_hot_label=one_hot_label)
         eval_dice.append(dice_score)
     print("Eval_loss: {}, Eval_accuracy: {}, Eval_dice: {}".format(tf.reduce_mean(epoch_val_loss),
                                                     tf.reduce_mean(epoch_val_accuracy),
