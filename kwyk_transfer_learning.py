@@ -6,8 +6,8 @@ import tensorflow as tf
 import os
 from kwyk_data import get_dataset
 from baysian_meshnet import variational_meshnet
-#from kwyk_losses import MaskedCategoricalCrossEntropy#,Dice_Cce,DiceLoss
-from kwyk_utils import save_parameters, save_output, calcualte_dice 
+from kwyk_losses import MaskedCategoricalCrossEntropy#,Dice_Cce,DiceLoss
+from kwyk_utils import save_parameters, save_output, calcualte_dice
 
 # constants
 #root_path = '/om/user/satra/kwyk/tfrecords/'
@@ -22,24 +22,24 @@ eval_pattern = root_path + "single_volume-000.tfrec"
 #train_pattern = root_path+"data-train_shard-*.tfrec"
 #eval_pattern = root_path + "data-evaluate_shard-*.tfrec"
 
-n_classes =50
+n_classes =115
 volume_shape = (256, 256, 256)
-block_shape = (64,64,64)
+block_shape = (32,32,32)
        
-EPOCHS = 150
-lr = 5e-04
-BATCH_SIZE = 4
+EPOCHS = 200
+lr = 1e-06
+BATCH_SIZE = 2
 num_training_brains = 1
-#num_training_brains = 10600
 num_examples = int(((volume_shape[0]/block_shape[0])**3)* num_training_brains/BATCH_SIZE)
+#num_examples = int(((volume_shape[0]/block_shape[0])**3)*num_training_brains)
 #num_examples=1
 one_hot_label=True
 
-initial_epoch = 0 ; scaling_start_epoch=10; scaling_increase_per_epoch = 0.3
+initial_epoch = 0 ; scaling_start_epoch=5 ; scaling_increase_per_epoch = 1
+#scaling_end_epoch = scaling_start_epoch + np.ceil(1/scaling_increase_per_epoch)
 warmup_factor=0
 
-
-model_name = "kwyk_cce_kl_nbg_b{}_cl{}".format(block_shape[0], n_classes)
+model_name = "kwyk_transfer_nfzlyr_Mcce_kl_b{}_cl{}".format(block_shape[0], n_classes)
 checkpoint_dir = os.path.join("training_files",model_name,"training_checkpoints")
 checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt_{epoch}")
 
@@ -47,34 +47,42 @@ print("--------- Loading data -------------")
 dataset_train = get_dataset(train_pattern,volume_shape, BATCH_SIZE, block_shape, n_classes,
                             one_hot_label=one_hot_label,
                             filter_background=True)
-dataset_eval = get_dataset(eval_pattern,volume_shape, BATCH_SIZE, block_shape, n_classes, training= False,one_hot_label=one_hot_label)
+dataset_eval = get_dataset(eval_pattern,volume_shape, BATCH_SIZE, block_shape, n_classes, 
+                           training= False,
+                           one_hot_label=one_hot_label)
 print("_________ data loaded with block_size: {}, batch_size: {}___________".format(block_shape[0], BATCH_SIZE)) 
 
 if initial_epoch >= scaling_start_epoch:
     warmup_factor = tf.convert_to_tensor(min(1., warmup_factor + (initial_epoch - scaling_start_epoch) * scaling_increase_per_epoch))
 kl_beta=tf.Variable(warmup_factor, dtype=tf.float32)
 
-# create model
+# instanciate the model
 model = variational_meshnet(
         n_classes = n_classes,
         input_shape = block_shape+(1,),
-        receptive_field=129,
+        receptive_field=37,
         filters=96,
         scale_factor = num_examples,
-        dropout=None,
+        dropout= "concrete",
         batch_size= BATCH_SIZE,
         warmup_factor=kl_beta,
         )
+# load weights
+weights_path = "./training_files/old_kwyk_weights/kwyk_b32_cl115_weights.hd5/"
+model.load_weights(weights_path) 
 
+# freeze trained layers
+# for layer in model.layers[:-2]:
+#     layer.trainable=False
+    
 optimizer = tf.keras.optimizers.Adam(lr=lr) 
 #loss_fn = DiceLoss(axis=(1,2,3))
-#loss_fn = MaskedCategoricalCrossEntropy()
+loss_fn = MaskedCategoricalCrossEntropy()
 #loss_fn = Dice_Cce(axis =(1,2,3), ignore_background = True)
-loss_fn= tf.keras.losses.CategoricalCrossentropy()
+#loss_fn = tf.keras.losses.CategoricalCrossentropy()
 checkpoint = tf.train.Checkpoint(optimizer=optimizer, model=model)
 model.compile(optimizer, loss=loss_fn,
                  metrics=['categorical_accuracy'],
-                 #loss_weights=class_weights,
                  experimental_run_tf_function=False)
 
 #training loop
@@ -83,7 +91,7 @@ valid_accuracy, valid_loss = [], []
 for epoch in range(EPOCHS):
     print('Epoch number ',epoch)
     epoch_accuracy, epoch_loss, epoch_dice = [], [], []
-    for steps, (batch_x,batch_y) in enumerate(dataset_train):
+    for steps, (batch_x,batch_y) in enumerate(dataset_train.take(num_examples)):
         batch_loss, batch_accuracy = model.train_on_batch(batch_x, batch_y)
         epoch_accuracy.append(batch_accuracy)
         epoch_loss.append(batch_loss)
@@ -100,14 +108,14 @@ for epoch in range(EPOCHS):
         save_parameters(output_path+"_prm.out",model_name,loss=tf.reduce_mean(epoch_loss).numpy().tolist(), 
                         accuracy=tf.reduce_mean(epoch_accuracy).numpy().tolist(),
                         dice=tf.reduce_mean(epoch_dice).numpy().tolist())
-
+        
     print("loss:{}, accuracy:{}, dice:{}".format(tf.reduce_mean(epoch_loss),
                                     tf.reduce_mean(epoch_accuracy),
                                     tf.reduce_mean(epoch_dice)))
     
     #adjusting the warmup factor
     if epoch >= scaling_start_epoch:
-            new_warmup_factor = tf.convert_to_tensor(min(1., warmup_factor + (epoch - scaling_start_epoch) * scaling_increase_per_epoch), dtype=tf.float32 )
+            new_warmup_factor = tf.convert_to_tensor(min(1., warmup_factor + (epoch - scaling_start_epoch) * scaling_increase_per_epoch), dtype=tf.float32)
             kl_beta.assign(new_warmup_factor)
             print("epoch {}, new kl_factor {}".format(epoch, kl_beta.numpy()))
             
@@ -121,7 +129,7 @@ for epoch in range(EPOCHS):
         epoch_val_accuracy.append(batch_val_accuracy)
         # calculate dice
         result = model.predict_on_batch(eval_x)
-        dice_score = calcualte_dice(eval_y, result,n_classes,axis=(1,2,3), one_hot_label=one_hot_label)
+        dice_score = calcualte_dice(eval_y, result, n_classes, axis=(1,2,3), one_hot_label=one_hot_label)
         eval_dice.append(dice_score)
     print("Eval_loss: {}, Eval_accuracy: {}, Eval_dice: {}".format(tf.reduce_mean(epoch_val_loss),
                                                     tf.reduce_mean(epoch_val_accuracy),
@@ -141,7 +149,7 @@ save_parameters(saved_param_path,model_name,
                 n_epochs = EPOCHS,
                 num_training_brains = num_training_brains,
                 loss_fn = loss_fn.name,
-                kl_warmup = scaling_start_epoch,
+                kl_start_epoch = scaling_start_epoch,
                 one_hot_label = one_hot_label
                 )
   

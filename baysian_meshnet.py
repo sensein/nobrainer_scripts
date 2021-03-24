@@ -11,7 +11,7 @@ import tensorflow_probability as tfp
 
 from nobrainer.layers.dropout import BernoulliDropout
 from nobrainer.layers.dropout import ConcreteDropout
-from bayesian_utils import normal_prior
+from bayesian_utils import normal_prior#, xavier_prior, He_prior
 
 tfk = tf.keras
 tfkl = tfk.layers
@@ -28,7 +28,7 @@ def variational_meshnet(
     dropout=None,
     activation=tf.nn.relu,
     batch_size=None,
-    kl_loss=True,
+    warmup_factor=1,
     name="variational_meshnet",
 ):
     """Instantiate variational MeshNet model.
@@ -67,27 +67,18 @@ def variational_meshnet(
     if receptive_field not in {37, 67, 129}:
         raise ValueError("unknown receptive field. Legal values are 37, 67, and 129.")
     
-    def one_layer(x, layer_num, scale_factor=scale_factor,dilation_rate=(1, 1, 1)):
-        kl_divergence_function = (lambda q, p, _: tfd.kl_divergence(q, p) /  # pylint: disable=g-long-lambda
+    def one_layer(x, layer_num, scale_factor=scale_factor, dilation_rate=(1, 1, 1), warmup=warmup_factor):
+        kl_divergence_function = (lambda q, p, _: tfd.kl_divergence(q, p) * tf.cast(warmup, dtype=tf.float32) /  # pylint: disable=g-long-lambda
                             tf.cast(scale_factor, dtype=tf.float32))
-        
-        if kl_loss:
-            x = tfpl.Convolution3DFlipout(filters,
-                                        kernel_size=3, padding="same",dilation_rate=dilation_rate,
-                                        kernel_prior_fn=prior_fn,
-                                        activation=activation, 
-                                        kernel_divergence_fn=kl_divergence_function,
-                                        #kernel_divergence_fn=None,
-                                        #activity_regularizer='l2',
-                                        name="layer{}/vwnconv3d".format(layer_num),)(x)
-        else:
-            x = tfpl.Convolution3DFlipout(filters,
-                                        kernel_size=3, padding="same",dilation_rate=dilation_rate,
-                                        kernel_prior_fn=prior_fn,
-                                        activation=activation, 
-                                        kernel_divergence_fn=None,
-                                        #activity_regularizer='l2',
-                                        name="layer{}/vwnconv3d".format(layer_num),)(x)        
+
+        x = tfpl.Convolution3DFlipout(filters,
+                                      kernel_size=3, padding="same",dilation_rate=dilation_rate,
+                                      kernel_prior_fn=prior_fn,
+                                      activation=activation, 
+                                      kernel_divergence_fn=kl_divergence_function,
+                                      #activity_regularizer='l2',
+                                      name="layer{}/vwnconv3d".format(layer_num),)(x)
+                      
         if dropout is None:
             pass
         elif dropout == "bernoulli":
